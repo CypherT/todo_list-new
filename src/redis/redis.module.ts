@@ -29,7 +29,7 @@ import { SubModule } from './pubsub/sub/sub.module';
     {
       provide: 'REDIS_PUB',
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService): Promise<Redis> => {
+      useFactory: (configService: ConfigService): Redis => {
         const client = new Redis({
           host: configService.get<string>('HOST_REDIS') || 'localhost',
           port: configService.get<number>('PORT_REDIS') || 6379,
@@ -42,7 +42,7 @@ import { SubModule } from './pubsub/sub/sub.module';
     {
       provide: 'REDIS_SUB',
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService): Promise<Redis> => {
+      useFactory: (configService: ConfigService): Redis => {
         const client = new Redis({
           host: configService.get<string>('HOST_REDIS') || 'localhost',
           port: configService.get<number>('PORT_REDIS') || 6379,

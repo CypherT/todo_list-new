@@ -1,7 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { BullMQAction } from 'src/redis/bullmq/bullmq.name';
+import { BullMQAction } from 'src/common/constant/bullmq.constant';
 import { ListenAuthQueue } from 'src/common/constant/processor.constant';
 
 @Injectable()

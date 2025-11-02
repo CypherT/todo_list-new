@@ -13,6 +13,7 @@ import { RegisterDTO } from './dto/register.dto';
 import { LoginDTO } from './dto/login.dto';
 import { Response, Request } from 'express';
 import { RequestUser } from '../todo/interface/todo.interface';
+import { TypeOtp } from './enum/otp.type';
 
 @Controller('auth')
 export class AuthController {
@@ -53,13 +54,29 @@ export class AuthController {
   }
 
   @Post('send-otp')
-  sendOtp(@Body('email') email: string) {
-    if (!email) throw new BadRequestException('Email is not empty');
-    return this.authService.sendOtp(email);
+  sendOtp(@Body() body: { email: string; type: TypeOtp }) {
+    if (!body.type) throw new BadRequestException('Type Send OTP is not empty');
+    if (!body.email) throw new BadRequestException('Email is not empty');
+    return this.authService.sendOtp(body.email, body.type);
   }
 
   @Post('verify-otp')
-  verifyOtp(@Body() body: { otp: string; email: string }) {
-    return this.authService.verifyOtp(body.email, body.otp);
+  verifyOtp(
+    @Body()
+    body: {
+      otp: string;
+      email: string;
+      type: TypeOtp;
+      oldPassword?: string;
+      newPassword?: string;
+    },
+  ) {
+    return this.authService.verifyOtp(
+      body.email,
+      body.otp,
+      body.type,
+      body.oldPassword,
+      body.newPassword,
+    );
   }
 }

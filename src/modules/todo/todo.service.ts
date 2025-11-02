@@ -15,10 +15,10 @@ import { User } from 'src/modules/auth/entity/user.entity';
 import { ResponseTodo } from './interface/todo.interface';
 import { TodoAction } from './WSEvent';
 import { getPagination } from 'src/common/untils/paginate.untils';
-import { TodoQueue } from 'src/redis/bullmq/queue/todo/todo.queue';
 import { TodoGateWay } from 'src/modules/todo/todo.gateway';
 import { UpdateTodoDTO } from './dto/update-todo.dto';
 import { RedisPubSubTodo } from 'src/common/constant/redis-pubsub.constant';
+import { TodoQueue } from './bullmq/todo/todo.queue';
 
 const TTL = 60;
 @Injectable()
@@ -35,7 +35,11 @@ export class TodoService {
 
   async create(dto: CreateTodoDTO, userId: string) {
     const user = await this.userRepository.findOneBy({ userId });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user)
+      throw new NotFoundException({
+        message: 'User not found',
+        error: 'user_not_found',
+      });
     const getDuration = this.getDuration(dto.duration);
     const createTodoRepo = this.todoRepository.create({
       title: dto.title,
@@ -46,7 +50,11 @@ export class TodoService {
       user,
     });
     const saveRepo = await this.todoRepository.save(createTodoRepo);
-
+    if (!saveRepo)
+      throw new BadRequestException({
+        message: 'Update fail',
+        error: 'update_fail',
+      });
     const { user: OrginalUser, ...todoData } = saveRepo;
     const safeUser = {
       email: OrginalUser.email,
@@ -56,7 +64,7 @@ export class TodoService {
       ...todoData,
       user: safeUser,
     };
-    await this.todoGateWay.broadcast(TodoAction.TodoCreated, safeTodo);
+    this.todoGateWay.broadcast(TodoAction.TodoCreated, safeTodo);
     return safeTodo;
   }
 
@@ -122,27 +130,36 @@ export class TodoService {
     } else {
       return {
         message: 'Not Found to do for user',
+        error: 'todo_not_found',
       };
     }
   }
 
   async update(id: string, dto: Partial<UpdateTodoDTO>, userId: string) {
     const key = `${this.key}:${userId}:${id}`;
-    const updateDuration = dto.duration
+    const updateDuration = !dto.duration
       ? undefined
       : this.getDuration(dto.duration);
     const findEntity = await this.todoRepository.findOne({
       where: { todoId: id, user: { userId } },
     });
 
-    if (!findEntity) throw new NotFoundException('Todo not found!');
+    if (!findEntity)
+      throw new NotFoundException({
+        mesage: 'Todo not found!',
+        error: 'todo_not_found',
+      });
     Object.assign(findEntity, dto, {
       duration: updateDuration ?? findEntity.duration,
       updatedAt: new Date().toISOString(),
     });
 
     const updated = await this.todoRepository.save(findEntity);
-
+    if (!updated)
+      throw new BadRequestException({
+        message: 'Update fail!',
+        error: 'update_fail',
+      });
     const cacheData = {
       todoId: updated.todoId,
       title: updated.title,
@@ -153,7 +170,7 @@ export class TodoService {
       updatedAt: updated.updatedAt,
     };
     await this.redis.set(key, JSON.stringify(cacheData), 'EX', TTL);
-    await this.todoGateWay.broadcast(TodoAction.TodoUpdated, updated);
+    this.todoGateWay.broadcast(TodoAction.TodoUpdated, updated);
 
     return updated;
   }
@@ -167,9 +184,17 @@ export class TodoService {
       },
     });
     if (!removeTodoRepo)
-      throw new NotFoundException('Not found todo to remove');
-    await this.todoRepository.remove(removeTodoRepo);
-    await this.todoGateWay.broadcast(TodoAction.TodoRemoved, {
+      throw new NotFoundException({
+        message: 'Not found todo to remove',
+        error: 'todo_not_found',
+      });
+    const deleteTodoFromDb = await this.todoRepository.remove(removeTodoRepo);
+    if (!deleteTodoFromDb)
+      throw new BadRequestException({
+        message: 'Delete fail. Please check again',
+        error: 'delete_fail',
+      });
+    this.todoGateWay.broadcast(TodoAction.TodoRemoved, {
       todoId: id,
     } as ResponseTodo);
     return {
@@ -200,6 +225,11 @@ export class TodoService {
     const allTods = await this.todoRepository.find({
       where: { user: { userId } },
     });
+    if (!allTods)
+      throw new NotFoundException({
+        message: 'Not found todo',
+        error: 'todo_not_found',
+      });
     const sizeDelete = 10;
     for (let i = 0; i < allTods.length; i += sizeDelete) {
       const deletodo = allTods.slice(i, i + sizeDelete);

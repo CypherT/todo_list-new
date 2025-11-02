@@ -14,8 +14,8 @@ export class SubAuth implements OnModuleInit {
     await this.redisSub.subscribe(RedisPubSubAuth.SendOTP);
     this.redisSub.on('message', (channel, message) => {
       if (channel === RedisPubSubAuth.SendOTP) {
-        const data = JSON.parse(message) as { email: string };
-        this.otpSerive.generateOTP(data.email);
+        const data = JSON.parse(message) as { email: string; type: string };
+        this.otpSerive.generateOTP(data.email, data.type);
       }
     });
   }

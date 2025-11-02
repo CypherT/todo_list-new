@@ -16,9 +16,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { User } from 'src/modules/auth/entity/user.entity';
 import { Repository } from 'typeorm';
 import { PayloadRFToken, ResponseUser } from './interface/login.interface';
-import { AuthQueue } from 'src/redis/bullmq/queue/auth/auth.queue';
 import { TodoService } from 'src/modules/todo/todo.service';
 import { RedisPubSubAuth } from 'src/common/constant/redis-pubsub.constant';
+import { TypeOtp } from './enum/otp.type';
+import { AuthQueue } from './bullmq/auth/auth.queue';
 
 @Injectable()
 export class AuthService {
@@ -33,40 +34,42 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDTO) {
-    const data = await this.redis.hget(this.key, dto.email);
-    const userRepo = await this.userRepository.findOneBy({ email: dto.email });
-    if (userRepo) throw new ConflictException('Email is already');
-    if (data) throw new ConflictException('Email is already');
-
-    const hassPass = await bcrypt.hash(dto.password, 10);
+    const { emailTrim, passwordTrim } = this.trimUser(dto.email, dto.password);
+    const userRepo = await this.userRepository.findOneBy({ email: emailTrim });
+    if (userRepo)
+      throw new ConflictException({
+        message: 'Email is already',
+        error: 'email_conflict',
+      });
+    const hassPass = await bcrypt.hash(passwordTrim, 10);
 
     const user = {
       name: dto.name,
-      email: dto.email,
+      email: emailTrim,
       password: hassPass,
       isVerify: false,
     };
     const newUser = this.userRepository.create(user);
     const createUser = await this.userRepository.save(newUser);
-    const { password: _, ...safeUser } = createUser;
+    const { password: _, isVerify: __, isBlock: ___, ...safeUser } = createUser;
     return safeUser;
   }
 
   async login(dto: LoginDTO, res: Response) {
     const { email, password } = dto;
-    const key = `${this.key}:isBlocked:${email}`;
-    const blockToken = await this.redis.get(key);
-    if (blockToken)
-      throw new UnauthorizedException('Token is block. Wait a few minute!');
-    const userDB = await this.userRepository.findOneBy({ email });
+    const { emailTrim, passwordTrim } = this.trimUser(email, password);
+    const userDB = await this.userRepository.findOneBy({ email: emailTrim });
     if (!userDB) throw new NotFoundException('Email is not correct');
 
     if (userDB && userDB.isBlock) {
       throw new UnauthorizedException('User is block by Admin!');
     }
     if (userDB && userDB.isVerify === false)
-      throw new BadRequestException('Email is not verify');
-    const isMatch = await bcrypt.compare(password, userDB.password);
+      throw new BadRequestException({
+        message: 'Email is not verify',
+        error: 'not_verify',
+      });
+    const isMatch = await bcrypt.compare(passwordTrim, userDB.password);
     if (!isMatch) throw new NotFoundException('Password not correct!');
     const payload = {
       userId: userDB.userId,
@@ -165,21 +168,21 @@ export class AuthService {
           secret: process.env.JWT_ACCESS_TOKEN,
         },
       );
-      const key = `${this.key}:isBlocked:${payload.email}`;
+      const key = `${this.key}:isBlocked:${accessToken}`;
       const now = Math.floor(Date.now() / 1000);
       const ttl = Math.max(0, payload.exp - now);
       await this.redis.set(key, accessToken.toString(), 'EX', ttl);
     } catch (error) {
-      throw new UnauthorizedException('Invalid token', error);
+      throw new UnauthorizedException('Invalid token', error as string);
     }
     return {
-      message: `You is logout and block login. Wait 15 minutes`,
+      message: `Logout successfull`,
     };
   }
 
   async deleteAccout(userId: string) {
     const userExist = await this.userRepository.findOneBy({ userId });
-    if (!userExist) throw new NotFoundException('Accoutn not found!');
+    if (!userExist) throw new NotFoundException('Accout not found!');
     await this.todoService.deleteTods(userId);
     await this.userRepository.remove(userExist);
 
@@ -188,25 +191,105 @@ export class AuthService {
     };
   }
 
-  async sendOtp(email: string) {
+  async sendOtp(email: string, type: TypeOtp) {
+    const emailExist = await this.userRepository.findOneBy({ email });
+    if (!emailExist)
+      throw new NotFoundException({
+        message: 'Email not found',
+        error: 'not_found',
+      });
+    const key = `otps:${type}:${email}`;
+    const redisCheck = await this.redis.get(key);
+    if (redisCheck) {
+      await this.redis.del(key);
+    }
     await this.redisPub.publish(
       RedisPubSubAuth.SendOTP,
-      JSON.stringify({ email }),
+      JSON.stringify({ email, type }),
     );
   }
 
-  async verifyOtp(email: string, otp: string) {
-    const key = `otps:${email}:${otp}`;
+  async verifyOtp(
+    email: string,
+    otp: string,
+    type: TypeOtp,
+    oldPassword?: string,
+    newPassword?: string,
+  ) {
+    const user = await this.userRepository.findOneBy({
+      email,
+    });
+    if (!user)
+      throw new NotFoundException({
+        message: 'User not found',
+        error: 'not_found',
+      });
+    const key = `otps:${type}:${email}`;
     const verify = await this.redis.get(key);
-    if (verify) {
-      const user = await this.userRepository.findOneBy({ email });
-      if (!user) throw new BadRequestException('User not found');
-      user.isVerify = true;
-      await this.userRepository.save(user);
-      if (!user) throw new NotFoundException('Verify fail. Please check email');
-      await this.redis.del(key);
-      return { message: 'Verify is success full' };
+    const otpParse = JSON.parse(verify as string) as string;
+    if (otpParse === otp) {
+      if (type === TypeOtp.Register) {
+        await this.redis.del(key);
+        return this.registerVeri(user);
+      } else if (type === TypeOtp.ResetPassword) {
+        await this.redis.del(key);
+        return this.resetVeri(
+          user,
+          oldPassword as string,
+          newPassword as string,
+        );
+      } else if (type === TypeOtp.forgotPassword) {
+        await this.redis.del(key);
+
+        return this.forgotVeri(user, newPassword as string);
+      }
     }
-    return { message: 'OTP not correct' };
+    throw new BadRequestException({
+      message: 'OTP is not correct',
+      error: 'otp_invalid',
+    });
+  }
+
+  private trimUser(email: string, password: string) {
+    const emailTrim = email.trim();
+    const passwordTrim = password.trim();
+    return {
+      emailTrim,
+      passwordTrim,
+    };
+  }
+
+  async registerVeri(user: User) {
+    user.isVerify = true;
+    await this.userRepository.save(user);
+    if (!user)
+      throw new BadRequestException({
+        message: 'Verify fail. Please check email',
+        error: 'verify_fail',
+      });
+    return { message: 'Verify is successfull' };
+  }
+
+  async resetVeri(user: User, oldPassword: string, newPassword: string) {
+    const trimOldPass = oldPassword.trim();
+    const trimNewPass = newPassword.trim();
+    const isMatch = await bcrypt.compare(trimOldPass, user.password);
+    if (!isMatch)
+      throw new BadRequestException({
+        message: 'Old password is not correct',
+        error: 'old_pass_not_correct',
+      });
+    const hassPassword = await bcrypt.hash(trimNewPass, 10);
+    user.password = hassPassword;
+    await this.userRepository.save(user);
+    return { message: 'Reset password is successfull' };
+  }
+
+  async forgotVeri(user: User, newPassword: string) {
+    const hassPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hassPassword;
+    const updated = await this.userRepository.save(user);
+    if (!updated) throw new Error('Update fail');
+    return { message: 'Update password is sucessfull' };
   }
 }

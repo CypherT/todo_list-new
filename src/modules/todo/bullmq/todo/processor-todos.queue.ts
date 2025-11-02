@@ -1,13 +1,14 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { BullMQAction } from '../../bullmq.name';
-import { ListenTodoQueue } from '../../../../common/constant/processor.constant';
+
 import { TodoServiceQueue } from './todo-service.queue';
 import { Job } from 'bullmq';
 
 import {
   QueueTodoInterface,
   QueueTodoInterfaceDel,
-} from '../interfaces/queue.todo.interface';
+} from '../../interface/queue.todo.interface';
+import { ListenTodoQueue } from 'src/common/constant/processor.constant';
+import { BullMQAction } from 'src/common/constant/bullmq.constant';
 
 @Processor(BullMQAction.TodoQueue)
 export class TodoQueueProcessor extends WorkerHost {
@@ -26,9 +27,7 @@ export class TodoQueueProcessor extends WorkerHost {
     }
   }
   async createTodoProcessor(job: Job) {
-    console.log('Job', job);
     const { dto, userId } = job.data as QueueTodoInterface;
-    console.log(dto);
     return await this.todoQueueService.createTodoService(dto, userId);
   }
 

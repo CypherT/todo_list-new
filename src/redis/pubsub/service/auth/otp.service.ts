@@ -6,15 +6,15 @@ import * as nodemailer from 'nodemailer';
 export class OTPService {
   constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
 
-  async generateOTP(email: string) {
+  async generateOTP(email: string, type: string) {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const key = `otps:${email}:${otp}`;
+    const key = `otps:${type}:${email}`;
     const ttlOtp = 60 * 10;
     if (await this.redis.get(key)) {
       await this.redis.del(key);
     }
     await Promise.all([
-      this.redis.set(key, JSON.stringify(email), 'EX', ttlOtp),
+      this.redis.set(key, JSON.stringify(otp), 'EX', ttlOtp),
       this.sendOtp(email, otp),
     ]);
   }

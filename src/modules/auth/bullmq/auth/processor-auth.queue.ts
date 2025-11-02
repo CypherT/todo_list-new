@@ -1,8 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { BullMQAction } from 'src/redis/bullmq/bullmq.name';
 import { ListenAuthQueue } from 'src/common/constant/processor.constant';
 import { SendMail } from './sendMail';
+import { BullMQAction } from 'src/common/constant/bullmq.constant';
 
 @Processor(BullMQAction.AuthQueue)
 export class AuthQueueProcessor extends WorkerHost {

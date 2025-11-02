@@ -1,9 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
-import { BullMQAction } from '../../bullmq.name';
+
 import { Queue } from 'bullmq';
+import { BullMQAction } from 'src/common/constant/bullmq.constant';
+import { ListenTodoQueue } from 'src/common/constant/processor.constant';
 import { CreateTodoDTO } from 'src/modules/todo/dto/create-todo.dto';
-import { ListenTodoQueue } from '../../../../common/constant/processor.constant';
+
 import { Todo } from 'src/modules/todo/entity/todo.entity';
 
 @Injectable()

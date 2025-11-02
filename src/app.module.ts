@@ -8,10 +8,9 @@ import { AuthModule } from './modules/auth/auth.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
-import { RATE_LIMIT_CONFIG } from './config/rateLimit.config';
+import { RATE_LIMIT_CONFIG } from './common/constant/rateLimit.constant';
 import { APP_GUARD } from '@nestjs/core';
 import { MailerModule } from '@nestjs-modules/mailer';
-import { BullMQModule } from './redis/bullmq/bullmq.module';
 import { databaseConfig } from './config/database.config';
 
 @Module({
@@ -49,7 +48,6 @@ import { databaseConfig } from './config/database.config';
         from: '"No reply" <thuanhai@localhost.com>',
       },
     }),
-    BullMQModule,
     TodoModule,
     RedisModule,
     AuthModule,

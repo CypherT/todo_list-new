@@ -8,6 +8,7 @@ import {
   Put,
   Query,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { CreateTodoDTO } from './dto/create-todo.dto';
@@ -29,6 +30,12 @@ export class TodoController {
   @Post('queue')
   async createTodoQueue(@Body() dto: CreateTodoDTO, @Req() req: RequestUser) {
     const { userId } = req.user;
+    if (!userId)
+      throw new UnauthorizedException({
+        message: 'Token invalid',
+        error: 'token_invalid',
+      });
+
     return await this.todoService.createFollowQueue(dto, userId);
   }
 
@@ -40,12 +47,23 @@ export class TodoController {
     @Query('q') q: string,
   ) {
     const { userId } = req.user;
+    if (!userId)
+      throw new UnauthorizedException({
+        message: 'Token invalid',
+        error: 'token_invalid',
+      });
     return this.todoService.findAll(userId, +page, +limit, q);
   }
 
   @Get(':id')
   findOneTodoOfUser(@Req() req: RequestUser, @Param('id') id: string) {
     const { userId } = req.user;
+    if (!userId)
+      throw new UnauthorizedException({
+        message: 'Token invalid',
+        error: 'token_invalid',
+      });
+
     return this.todoService.findOne(userId, id);
   }
   @Put(':id')
@@ -55,17 +73,36 @@ export class TodoController {
     @Req() req: RequestUser,
   ) {
     const { userId } = req.user;
+    if (!userId)
+      throw new UnauthorizedException({
+        message: 'Token invalid',
+        error: 'token_invalid',
+      });
+
     return this.todoService.update(id, dto, userId);
   }
 
   @Delete(':id')
   delete(@Param('id') id: string, @Req() req: RequestUser) {
     const { userId } = req.user;
+    if (!userId)
+      throw new UnauthorizedException({
+        message: 'Token invalid',
+        error: 'token_invalid',
+      });
+
     return this.todoService.remove(id, userId);
   }
 
   @Post('pub-todo')
   async pubTodo(@Body() dto: CreateTodoDTO, @Req() req: RequestUser) {
-    return await this.todoService.pubTodo(dto, req.userId);
+    const { userId } = req.user;
+    if (!userId)
+      throw new UnauthorizedException({
+        message: 'Token invalid',
+        error: 'token_invalid',
+      });
+
+    return await this.todoService.pubTodo(dto, userId);
   }
 }

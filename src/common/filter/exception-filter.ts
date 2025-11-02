@@ -14,19 +14,19 @@ export class HandleException implements ExceptionFilter {
     const status = exception.getStatus();
 
     const exceptionResponse = exception.getResponse();
-    let errorDetail: unknown = null;
-    if (
-      typeof exceptionResponse === 'object' &&
-      exceptionResponse !== null &&
-      'error' in (exceptionResponse as Record<string, unknown>)
-    ) {
-      errorDetail = (exceptionResponse as Record<string, unknown>)['error'];
+    let message = 'Unknown error';
+    let error = 'unknown';
+    if (typeof exceptionResponse === 'string') {
+      message = exceptionResponse;
+    } else if (typeof exceptionResponse === 'object') {
+      message = (exceptionResponse as any).message;
+      error = (exceptionResponse as any).error;
     }
     response.status(status).json({
       ok: 0,
       t: status,
-      d: exceptionResponse,
-      e: errorDetail,
+      d: message,
+      e: error,
     });
   }
 }

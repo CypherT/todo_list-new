@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Logger,
-  UnauthorizedException,
-  UseGuards,
-} from '@nestjs/common';
+import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
@@ -21,6 +16,7 @@ import { IncomingMessage } from 'http';
 import { randomUUID } from 'crypto';
 import { IpThrottlerGuard } from 'src/common/guard/ip-throttler.guard';
 import { ResponseTodo } from 'src/modules/todo/interface/todo.interface';
+import { RATE_LIMIT_CONFIG } from 'src/common/constant/rateLimit.constant';
 
 interface AuthWebSocket extends WebSocket {
   id: string;
@@ -32,7 +28,10 @@ interface SendMessagePayload {
   dataSend: ResponseTodo;
 }
 @UseGuards(IpThrottlerGuard)
-@WebSocketGateway(3001, { path: '/ws' })
+@WebSocketGateway(3001, {
+  path: '/ws',
+  maxHttpBufferSize: RATE_LIMIT_CONFIG.MAX_WS_MESSAGE_BYTES,
+})
 export class TodoGateWay
   implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit
 {
@@ -60,13 +59,14 @@ export class TodoGateWay
 
     try {
       const url = req?.url ?? '';
+      if (url.length > 1024) {
+        client.close(1008, 'Param too long');
+      }
       const urlParams = new URLSearchParams(url.split('?')[1] || '');
       const token =
         urlParams.get('token') ||
         req?.headers?.authorization?.toString().split(' ')[1];
-      if (url.length > 1024) {
-        throw new BadRequestException('Query parame are too long');
-      }
+
       if (!token) {
         throw new UnauthorizedException('Token is missing!');
       }
@@ -112,20 +112,13 @@ export class TodoGateWay
       this.logger.log(`Unknown client disconnected, clientId=${client?.id}`);
     }
   }
-  async broadcast(t: string, d: ResponseTodo, sender?: AuthWebSocket) {
+  broadcast(t: string, d: ResponseTodo) {
     if (!this.server) {
       this.logger.warn('WebSocket server not initialized yet.');
       return;
     }
 
     const message = JSON.stringify({ t, d });
-    const valid = await this.checkByte(message);
-    if (!valid) {
-      if (sender && sender.readyState === WebSocket.OPEN) {
-        sender.send(JSON.stringify({ error: 'Message too large' }));
-      }
-      return;
-    }
     this.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         try {
@@ -136,13 +129,35 @@ export class TodoGateWay
       }
     });
   }
+  broadcastToAllClientSameUserId(
+    t: string,
+    d: ResponseTodo,
+    sender: AuthWebSocket,
+  ) {
+    if (!this.server) return;
 
+    const currentUser = sender.userId; // lấy userId từ auth của AuthSocket
+    const clientsOfUserId = this.userClients.get(currentUser as string); // lấy tất cả clients của userId
+    if (!clientsOfUserId || clientsOfUserId.size === 0) return;
+    const message = JSON.stringify({ t, d });
+
+    clientsOfUserId?.forEach((client) => {
+      const clients = this.clients.get(client); // lặp qua từng client có trong clients và send
+      if (clients?.readyState === WebSocket.OPEN) {
+        try {
+          clients.send(message);
+        } catch (error) {
+          this.logger.warn(`Failed to send to client ${clients.id}`, error);
+        }
+      }
+    });
+  }
   @SubscribeMessage('MessageToAllClient')
-  async broadCastConnect(
+  broadCastConnect(
     @MessageBody() d: ResponseTodo,
     @ConnectedSocket() client: AuthWebSocket,
   ) {
-    await this.broadcast('MessageToAllClient', d, client);
+    this.broadcastToAllClientSameUserId('MessageToAllClient', d, client);
 
     // Test Ws : JSON =>
     // {
@@ -218,13 +233,5 @@ export class TodoGateWay
     if (error instanceof Error) return error.message;
     if (typeof error === 'string') return error;
     return 'An unknown error occured';
-  }
-
-  private async checkByte(payload: string): Promise<boolean> {
-    if (Buffer.byteLength(payload, 'utf8') > 1024) {
-      this.logger.warn('Block message');
-      return false;
-    }
-    return true;
   }
 }
